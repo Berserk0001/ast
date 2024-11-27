@@ -35,7 +35,7 @@ async function proxyImage(req, reply) {
   const grayscale = req.query.bw != 0;
   const quality = parseInt(req.query.l, 10) || 40;
 
-  if (!url) return reply.send('bandwidth-hero-proxy);
+  if (!url) reply.send('bandwidth-hero-proxy);
 
   try {
     // Fetch the image from the URL

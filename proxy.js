@@ -39,7 +39,7 @@ async function proxyImage(req, reply) {
 
   try {
     // Fetch the image from the URL
-    const response = await axios.get(url, {
+    let response = await axios.get(url, {
       headers: { 'User-Agent': 'Fastify-Image-Proxy' },
       responseType: 'stream',
     });

@@ -1,7 +1,7 @@
 import fastify from 'fastify';
 import proxyImage from './proxy.js';  // Assuming you have your proxy logic in proxy.js
 
-const app = fastify({ logger: true });
+const app = fastify({ logger: false });
 
 // Route to handle image proxying at root path ("/")
 app.get('/', proxyImage);

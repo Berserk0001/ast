@@ -8,12 +8,9 @@ const app = fastify({
 });
 
 // Register the proxy route
-app.get("/proxy", proxy);
+app.get("", proxy);
 
-// Define a default route for health checks or root requests
-app.get("/", async (request, reply) => {
-  return { message: "Fastify server is running!" };
-});
+
 
 // Start the server
 const start = async () => {

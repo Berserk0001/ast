@@ -8,7 +8,7 @@ const app = fastify({
 });
 
 // Register the proxy route
-app.get("", proxy);
+app.get("/", proxy);
 
 
 

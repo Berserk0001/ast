@@ -1,26 +1,25 @@
-"use strict";
+import Fastify from 'fastify';
+import proxy from './proxy.js'; // Assuming proxy.js is in the same directory
 
-import Fastify from "fastify";
-import proxy from "./proxy.js";
+const fastify = Fastify({ logger: true });
 
-const fastify = Fastify({
-  logger: true,
-});
+// Fastify route using the proxy handler at the root path
+fastify.get('/', async (req, reply) => {
+  return new Promise((resolve, reject) => {
+    // Call the proxy function with raw request and response objects
+    proxy(req.raw, reply.raw);
 
-// Define the proxy route
-fastify.get("/", proxy);
-
-// Define the favicon route
-fastify.get("/favicon.ico", async (req, reply) => {
-  // Send a 204 No Content response
-  reply.code(204).send();
+    // Handle the response lifecycle
+    reply.raw.on('finish', resolve); // Resolve the promise on successful response
+    reply.raw.on('error', reject);  // Reject the promise on error
+  });
 });
 
 // Start the server
 const start = async () => {
   try {
-    await fastify.listen({ port: 3000, host: "0.0.0.0" });
-    fastify.log.info(`Server running at http://localhost:3000`);
+    await fastify.listen({ port: 3000 });
+    fastify.log.info('Server running at http://localhost:3000');
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

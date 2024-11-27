@@ -6,9 +6,9 @@
  */
 import axios from "axios";
 import sharp from "sharp";
-import { availableParallelism } from "os";
-import pick from "./pick.js";
+import { availableParallelism } from 'os';
 
+import pick from "./pick.js";
 const DEFAULT_QUALITY = 40;
 const MIN_COMPRESS_LENGTH = 1024;
 const MIN_TRANSPARENT_COMPRESS_LENGTH = MIN_COMPRESS_LENGTH * 100;
@@ -33,10 +33,10 @@ function shouldCompress(req) {
 }
 
 // Helper: Copy headers
-function copyHeaders(source, reply) {
+function copyHeaders(source, target) {
   for (const [key, value] of Object.entries(source.headers)) {
     try {
-      reply.header(key, value);
+      target.setHeader(key, value);
     } catch (e) {
       console.log(e.message);
     }
@@ -44,22 +44,20 @@ function copyHeaders(source, reply) {
 }
 
 // Helper: Redirect
-function redirect(req, reply) {
-  if (reply.sent) return;
+function redirect(req, res) {
+  if (res.headersSent) return;
 
-  reply
-    .header("content-length", 0)
-    .removeHeader("cache-control")
-    .removeHeader("expires")
-    .removeHeader("date")
-    .removeHeader("etag")
-    .header("location", encodeURI(req.params.url))
-    .code(302)
-    .send();
+  res.setHeader("content-length", 0);
+  res.removeHeader("cache-control");
+  res.removeHeader("expires");
+  res.removeHeader("date");
+  res.removeHeader("etag");
+  res.setHeader("location", encodeURI(req.params.url));
+  res.status(302).end();
 }
 
 // Helper: Compress
-function compress(req, reply, input) {
+function compress(req, res, input) {
   const format = "jpeg";
 
   sharp.cache(false);
@@ -76,31 +74,34 @@ function compress(req, reply, input) {
     .pipe(
       sharpInstance
         .resize(null, 16383, {
-          withoutEnlargement: true,
+          withoutEnlargement: true
         })
         .grayscale(req.params.grayscale)
         .toFormat(format, {
           quality: req.params.quality,
-          chromaSubsampling: "4:4:4",
+         // chromaSubsampling: '4:4:4',
+          effort: 0,
+    // progressive: true, // Enable progressive JPEG
+      chromaSubsampling: '4:4:4', // Default chroma subsampling
+      
         })
-        .on("error", () => redirect(req, reply))
+        .on("error", () => redirect(req, res))
         .on("info", (info) => {
-          reply
-            .header("content-type", "image/" + format)
-            .header("content-length", info.size)
-            .header("x-original-size", req.params.originSize)
-            .header("x-bytes-saved", req.params.originSize - info.size)
-            .code(200);
+          res.setHeader("content-type", "image/" + format);
+          res.setHeader("content-length", info.size);
+          res.setHeader("x-original-size", req.params.originSize);
+          res.setHeader("x-bytes-saved", req.params.originSize - info.size);
+          res.status(200);
         })
     )
-    .pipe(reply.raw);
+    .pipe(res);
 }
 
 // Main: Proxy
-async function proxy(req, reply) {
+ function proxy(req, res) {
   // Extract and validate parameters from the request
-  const url = req.query.url;
-  if (!url) return reply.send("bandwidth-hero-proxy");
+  let url = req.query.url;
+  if (!url) return res.send("bandwidth-hero-proxy");
 
   req.params = {};
   req.params.url = decodeURIComponent(url);
@@ -113,11 +114,11 @@ async function proxy(req, reply) {
     req.headers["via"] === "1.1 bandwidth-hero" &&
     ["127.0.0.1", "::1"].includes(req.headers["x-forwarded-for"] || req.ip)
   ) {
-    return redirect(req, reply);
+    return redirect(req, res);
   }
 
-  try {
-    const origin = await axios.get(req.params.url, {
+  axios
+    .get(req.params.url, {
       headers: {
         ...pick(req.headers, ["cookie", "dnt", "referer", "range"]),
         "user-agent": "Bandwidth-Hero Compressor",
@@ -125,46 +126,45 @@ async function proxy(req, reply) {
         via: "1.1 bandwidth-hero",
       },
       responseType: "stream",
-      maxRedirects: 4,
+      maxRedirections: 4,
+    })
+    .then((origin) => {
+      // Handle non-2xx or redirect responses.
+      if (
+        origin.status >= 400 ||
+        (origin.status >= 300 && origin.headers.location)
+      ) {
+        return redirect(req, res);
+      }
+
+      // Set headers and stream response.
+      copyHeaders(origin, res);
+      res.setHeader("content-encoding", "identity");
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
+      res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
+      req.params.originType = origin.headers["content-type"] || "";
+      req.params.originSize = origin.headers["content-length"] || "0";
+
+      if (shouldCompress(req)) {
+        return compress(req, res, origin);
+      } else {
+        res.setHeader("x-proxy-bypass", 1);
+        ["accept-ranges", "content-type", "content-length", "content-range"].forEach((header) => {
+          if (origin.headers[header]) {
+            res.setHeader(header, origin.headers[header]);
+          }
+        });
+       return origin.data.pipe(res);
+      }
+    })
+    .catch((err) => {
+      if (err.code === "ERR_INVALID_URL") {
+        return res.status(400).send("Invalid URL");
+      }
+      redirect(req, res);
+      console.error(err);
     });
-
-    // Handle non-2xx or redirect responses.
-    if (
-      origin.status >= 400 ||
-      (origin.status >= 300 && origin.headers.location)
-    ) {
-      return redirect(req, reply);
-    }
-
-    // Set headers and stream response.
-    copyHeaders(origin, reply);
-    reply
-      .header("content-encoding", "identity")
-      .header("Access-Control-Allow-Origin", "*")
-      .header("Cross-Origin-Resource-Policy", "cross-origin")
-      .header("Cross-Origin-Embedder-Policy", "unsafe-none");
-
-    req.params.originType = origin.headers["content-type"] || "";
-    req.params.originSize = origin.headers["content-length"] || "0";
-
-    if (shouldCompress(req)) {
-      compress(req, reply, origin);
-    } else {
-      reply.header("x-proxy-bypass", 1);
-      ["accept-ranges", "content-type", "content-length", "content-range"].forEach((header) => {
-        if (origin.headers[header]) {
-          reply.header(header, origin.headers[header]);
-        }
-      });
-      origin.data.pipe(reply.raw);
-    }
-  } catch (err) {
-    if (err.code === "ERR_INVALID_URL") {
-      return reply.code(400).send("Invalid URL");
-    }
-    redirect(req, reply);
-    console.error(err);
-  }
 }
 
 export default proxy;

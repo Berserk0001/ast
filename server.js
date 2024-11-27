@@ -10,6 +10,12 @@ const fastify = Fastify({
 // Define the proxy route
 fastify.get("/", proxy);
 
+// Define the favicon route
+fastify.get("/favicon.ico", async (req, reply) => {
+  // Send a 204 No Content response
+  reply.code(204).send();
+});
+
 // Start the server
 const start = async () => {
   try {

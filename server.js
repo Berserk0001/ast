@@ -1,21 +1,28 @@
 import Fastify from 'fastify';
-import proxy from './proxy.js'; // Assuming proxy.js is in the same directory
+import proxy from './proxy.js'; // Import the proxy function
 
 const fastify = Fastify({ logger: true });
 
-// Fastify route using the proxy handler at the root path
-fastify.get('/', async (req, reply) => {
-  return new Promise((resolve, reject) => {
-    // Call the proxy function with raw request and response objects
-    proxy(req.raw, reply.raw);
+// Use `/` as the route to handle requests
+fastify.get('/', (req, reply) => {
+  // Adapt Fastify's `req` and `reply` objects for the proxy.js handler
+  const resAdapter = {
+    setHeader: (name, value) => reply.header(name, value),
+    removeHeader: (name) => reply.removeHeader(name),
+    status: (statusCode) => {
+      reply.code(statusCode);
+      return resAdapter;
+    },
+    end: (body) => reply.send(body),
+    pipe: (stream) => {
+      stream.pipe(reply.raw);
+    },
+    headersSent: false, // Fastify handles this internally
+  };
 
-    // Handle the response lifecycle
-    reply.raw.on('finish', resolve); // Resolve the promise on successful response
-    reply.raw.on('error', reject);  // Reject the promise on error
-  });
+  proxy(req.raw, resAdapter); // Pass the raw request and the adapted response
 });
 
-// Start the server
 const start = async () => {
   try {
     await fastify.listen({ port: 3000 });

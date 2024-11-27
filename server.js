@@ -1,26 +1,23 @@
 "use strict";
 
-import fastify from "fastify";
-import proxy from "./proxy.js"; // Import the proxy handler
+import Fastify from "fastify";
+import proxy from "./proxy.js";
 
-const app = fastify({
-  logger: false, // Enable logging for debugging
+const fastify = Fastify({
+  logger: true,
 });
 
-// Register the proxy route
-app.get("/", proxy);
-
-
+// Define the proxy route
+fastify.get("/", proxy);
 
 // Start the server
 const start = async () => {
   try {
-    const PORT = process.env.PORT || 3000; // Use environment variable or default to 3000
-    await app.listen({ port: PORT });
-    console.log(`Server is running on http://localhost:${PORT}`);
+    await fastify.listen({ port: 3000, host: "0.0.0.0" });
+    fastify.log.info(`Server running at http://localhost:3000`);
   } catch (err) {
-    app.log.error(err);
-    process.exit(1); // Exit process with failure code
+    fastify.log.error(err);
+    process.exit(1);
   }
 };
 

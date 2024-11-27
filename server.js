@@ -159,7 +159,9 @@ app.get("/proxy", async (req, reply) => {
     console.error(err);
   }
 });
-
+app.get("/proxy", async (req, reply) => {
+  // Route logic here
+});
 // Start the server
 app.listen({ port: 3000 }, (err, address) => {
   if (err) {

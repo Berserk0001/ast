@@ -1,5 +1,9 @@
 "use strict";
 
+/*
+ * proxy.js
+ * The bandwidth hero proxy handler with integrated modules.
+ */
 import axios from "axios";
 import sharp from "sharp";
 import { availableParallelism } from "os";
@@ -29,10 +33,10 @@ function shouldCompress(req) {
 }
 
 // Helper: Copy headers
-function copyHeaders(source, target) {
+function copyHeaders(source, reply) {
   for (const [key, value] of Object.entries(source.headers)) {
     try {
-      target.setHeader(key, value);
+      reply.header(key, value);
     } catch (e) {
       console.log(e.message);
     }
@@ -41,21 +45,21 @@ function copyHeaders(source, target) {
 
 // Helper: Redirect
 function redirect(req, reply) {
-  const { res } = reply.raw;
-  if (res.headersSent) return;
+  if (reply.sent) return;
 
-  res.setHeader("content-length", 0);
-  res.removeHeader("cache-control");
-  res.removeHeader("expires");
-  res.removeHeader("date");
-  res.removeHeader("etag");
-  res.setHeader("location", encodeURI(req.params.url));
-  reply.code(302).send();
+  reply
+    .header("content-length", 0)
+    .removeHeader("cache-control")
+    .removeHeader("expires")
+    .removeHeader("date")
+    .removeHeader("etag")
+    .header("location", encodeURI(req.params.url))
+    .code(302)
+    .send();
 }
 
 // Helper: Compress
 function compress(req, reply, input) {
-  const { res } = reply.raw;
   const format = "jpeg";
 
   sharp.cache(false);
@@ -81,19 +85,21 @@ function compress(req, reply, input) {
         })
         .on("error", () => redirect(req, reply))
         .on("info", (info) => {
-          res.setHeader("content-type", "image/" + format);
-          res.setHeader("content-length", info.size);
-          res.setHeader("x-original-size", req.params.originSize);
-          res.setHeader("x-bytes-saved", req.params.originSize - info.size);
-          reply.code(200);
+          reply
+            .header("content-type", "image/" + format)
+            .header("content-length", info.size)
+            .header("x-original-size", req.params.originSize)
+            .header("x-bytes-saved", req.params.originSize - info.size)
+            .code(200);
         })
     )
-    .pipe(res);
+    .pipe(reply.raw);
 }
 
-// Main: Proxy handler
+// Main: Proxy
 async function proxy(req, reply) {
-  let url = req.query.url;
+  // Extract and validate parameters from the request
+  const url = req.query.url;
   if (!url) return reply.send("bandwidth-hero-proxy");
 
   req.params = {};
@@ -119,9 +125,10 @@ async function proxy(req, reply) {
         via: "1.1 bandwidth-hero",
       },
       responseType: "stream",
-      maxRedirections: 4,
+      maxRedirects: 4,
     });
 
+    // Handle non-2xx or redirect responses.
     if (
       origin.status >= 400 ||
       (origin.status >= 300 && origin.headers.location)
@@ -129,14 +136,16 @@ async function proxy(req, reply) {
       return redirect(req, reply);
     }
 
-    copyHeaders(origin, reply.raw);
-    reply.header("content-encoding", "identity");
-    reply.header("Access-Control-Allow-Origin", "*");
-    reply.header("Cross-Origin-Resource-Policy", "cross-origin");
-    reply.header("Cross-Origin-Embedder-Policy", "unsafe-none");
+    // Set headers and stream response.
+    copyHeaders(origin, reply);
+    reply
+      .header("content-encoding", "identity")
+      .header("Access-Control-Allow-Origin", "*")
+      .header("Cross-Origin-Resource-Policy", "cross-origin")
+      .header("Cross-Origin-Embedder-Policy", "unsafe-none");
 
     req.params.originType = origin.headers["content-type"] || "";
-    req.params.originSize = parseInt(origin.headers["content-length"], 10) || 0;
+    req.params.originSize = origin.headers["content-length"] || "0";
 
     if (shouldCompress(req)) {
       compress(req, reply, origin);
